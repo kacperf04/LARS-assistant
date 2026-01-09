@@ -9,4 +9,4 @@ vectorizer = joblib.load('./classifier/pkl/vectorizer.pkl')
 if __name__ == "__main__":
     load_dotenv()
     spClient = SpotifyTool()
-    spClient.run("aa")
+    spClient.run("play fur elise")
