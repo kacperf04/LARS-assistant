@@ -6,6 +6,9 @@ import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 import re
 from src.tools.base_tool import BaseTool
+from src.tools.spotify.sqlite import connect_to_cache_db, insert_playlist_details, truncate_cache_tables, insert_track_details, insert_playlist_track
+
+import sqlite3
 
 class SpotifyTool(BaseTool):
     """
@@ -26,6 +29,7 @@ class SpotifyTool(BaseTool):
         self.sp = spotipy.Spotify(
             auth_manager=SpotifyOAuth(scope="user-modify-playback-state user-read-playback-state")
         )
+        self.cache_db_conn, self._cache_db_cursor = connect_to_cache_db()
         self._action_keywords = {
             "resume": ["resume", "resume playing", "continue", "unpause", "keep playing"],
             "next": ["next", "skip", "forward", "another one"],
@@ -37,7 +41,6 @@ class SpotifyTool(BaseTool):
             "phone": ["phone", "cellphone", "mobile", "smartphone", "iphone", "android"],
             "computer": ["computer", "laptop", "desktop", "pc"]
         }
-        self._users_playlists = self._get_user_playlists_details()
         self._preferred_playlist = "spotify:playlist:2300cDk2Vk3GdKFfEY8ceX"
 
 
@@ -81,19 +84,37 @@ class SpotifyTool(BaseTool):
         return tracks
 
 
-    def _get_user_playlists_details(self) -> Dict[str, Dict[str, str]]:
+    def _get_user_playlists_details(self) -> None:
         """Retrieves the details(uri and name) of all the playlists owned by the current user."""
-        print("== Fetching user playlists... ==")
-        user_playlists_details = {
-            playlist["id"]: {
-                "playlist_uri": playlist["uri"],
-                "playlist_name": playlist["name"],
-                "tracks": self._get_playlist_tracks_uris(playlist["id"])
-            }
-            for playlist in self.sp.current_user_playlists()["items"]
-        }
+        print("== Checking cache for playlists... ==")
+        cached_playlists = self._cache_db_cursor.execute("SELECT playlist_id, snapshot_id  FROM playlists").fetchall()
+        server_playlists = [ (playlist["id"], playlist["snapshot_id"]) for playlist in self.sp.current_user_playlists()["items"] ]
+
+        cached_playlist_ids = [ playlist_id for playlist_id, _ in cached_playlists ]
+
+        for playlist_id, snapshot_id in server_playlists:
+            if playlist_id not in cached_playlist_ids:
+                playlist_details = self.sp.playlist(playlist_id=playlist_id)
+                print(f"  == Adding playlist {playlist_id} to cache... ==")
+                insert_playlist_details(self.cache_db_conn, self._cache_db_cursor, playlist_id, playlist_details["uri"], playlist_details["name"], snapshot_id)
+                for item in playlist_details["tracks"]["items"]:
+                    track_id = item["track"]["id"]
+                    track_uri = item["track"]["uri"]
+                    track_name = item["track"]["name"]
+                    track_popularity = item["track"]["popularity"]
+                    main_artist_id = item["track"]["artists"][0]["id"]
+                    main_artist_name = item["track"]["artists"][0]["name"]
+                    insert_track_details(
+                        self.cache_db_conn, self._cache_db_cursor, track_id, track_uri, track_name, track_popularity, main_artist_id, main_artist_name
+                    )
+                    print(f"    Adding track {track_name} to {playlist_details["name"]} to cache...")
+                    insert_playlist_track(
+                        self.cache_db_conn, self._cache_db_cursor, playlist_id, track_id
+                    )
+                self.cache_db_conn.commit()
+
+
         print("Done")
-        return user_playlists_details
 
 
     def _get_top_search_results(self, query: str, limit: int, search_type: str = "track") -> List[Dict[str, str | float]]:
@@ -132,21 +153,13 @@ class SpotifyTool(BaseTool):
         top_tracks_from_query = self._get_top_search_results(query, 10)
         top_tracks_uris = [ track["track_uri"] for track in top_tracks_from_query]
 
-        if found_song_and_playlist := self._get_track_from_users_playlist(top_tracks_uris):
-            playlist_id, song_uri = found_song_and_playlist
-        else:
-            playlist_id, song_uri = None, None
+        #truncate_cache_tables(self.cache_db_conn, self._cache_db_cursor)
+        self.cache_db_conn.commit()
+        self._get_user_playlists_details()
 
-        if self._get_active_device(device_type) is None:
-            subprocess.run(["flatpak", "run", "com.spotify.Client"])
-            time.sleep(2)
+        self.cache_db_conn.close()
 
-        if playlist_id is not None:
-            self.sp.start_playback(device_id=self._get_active_device(device_type), context_uri=playlist_id, offset={"uri": song_uri})
-        else:
-            self.sp.start_playback(device_id=self._get_active_device(device_type), uris=top_tracks_uris)
-
-        return query
+        return "aa"
 
 
     def _get_active_device(self, device_type: str = "smartphone"):
