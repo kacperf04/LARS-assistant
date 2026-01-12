@@ -77,7 +77,21 @@ def get_tracks_ids(connection: sqlite3.Connection, cursor: sqlite3.Cursor) -> Li
 
 def get_tracks_in_playlist(connection: sqlite3.Connection, cursor: sqlite3.Cursor, playlist_id: str) -> List[str]:
     """Retrieves the IDs of all the tracks in the given playlist."""
-    ids = [ row[0] for row in cursor.execute("SELECT track_id FROM playlist_tracks").fetchall() ]
+    ids = [ row[0] for row in cursor.execute(f"SELECT track_id FROM playlist_tracks WHERE playlist_id = '{playlist_id}'").fetchall() ]
+    return ids
+
+
+def get_leftover_tracks_ids(connection: sqlite3.Connection, cursor: sqlite3.Cursor) -> List[str]:
+    """Retrieves the IDs of all the tracks that are not present in any playlist in the cache database."""
+    ids = [row[0] for row in
+           cursor.execute(f"SELECT t.track_id FROM tracks t LEFT JOIN playlist_tracks pt ON t.track_id = pt.track_id WHERE pt.track_id IS NULL").fetchall()]
+    return ids
+
+
+def get_leftover_artists_ids(connection: sqlite3.Connection, cursor: sqlite3.Cursor) -> List[str]:
+    """Retrieves the IDs of all the artists that are not assigned to any track in the cache database."""
+    ids = [row[0] for row in
+           cursor.execute(f"SELECT a.artist_id FROM artists a LEFT JOIN tracks t ON a.artist_id = t.artist_id WHERE t.artist_id IS NULL").fetchall()]
     return ids
 
 
@@ -112,6 +126,26 @@ def insert_playlist_track(connection: sqlite3.Connection, cursor: sqlite3.Cursor
     if not track_id in get_tracks_in_playlist(connection, cursor, playlist_id):
         cursor.execute(f"INSERT INTO playlist_tracks VALUES ('{playlist_id}', '{track_id}')")
     connection.commit()
+
+
+def update_snapshot_id(connection: sqlite3.Connection, cursor: sqlite3.Cursor, playlist_id: str, snapshot_id: str) -> None:
+    """Updates the snapshot ID of a playlist in the cache database."""
+    cursor.execute(f"UPDATE playlists SET snapshot_id = '{snapshot_id}' WHERE playlist_id = '{playlist_id}'")
+    connection.commit()
+
+
+def delete_track(connection: sqlite3.Connection, cursor: sqlite3.Cursor, track_id: str, playlist_id: str) -> None:
+    """Deletes a track from the cache database."""
+    cursor.execute(f"DELETE FROM playlist_tracks WHERE track_id = '{track_id}' AND playlist_id = '{playlist_id}'")
+
+    tracks_to_delete = get_leftover_tracks_ids(connection, cursor)
+    artists_to_delete = get_leftover_artists_ids(connection, cursor)
+    for track_id in tracks_to_delete:
+        cursor.execute(f"DELETE FROM tracks WHERE track_id = '{track_id}'")
+        connection.commit()
+    for artist_id in artists_to_delete:
+        cursor.execute(f"DELETE FROM artists WHERE artist_id = '{artist_id}'")
+        connection.commit()
 
 
 def truncate_cache_tables(connection: sqlite3.Connection, cursor: sqlite3.Cursor) -> None:
