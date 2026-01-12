@@ -1,14 +1,12 @@
-import subprocess
-import time
 from typing import Dict, List, Tuple
 
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 import re
 from src.tools.base_tool import BaseTool
-from src.tools.spotify.sqlite import connect_to_cache_db, insert_playlist_details, truncate_cache_tables, insert_track_details, insert_playlist_track
+from src.tools.spotify.sqlite import connect_to_cache_db, insert_playlist_details, get_tracks_in_playlist, \
+    insert_track_details, insert_playlist_track, truncate_cache_tables, delete_track, update_snapshot_id
 
-import sqlite3
 
 class SpotifyTool(BaseTool):
     """
@@ -97,7 +95,6 @@ class SpotifyTool(BaseTool):
             if playlist_id not in cached_playlist_ids:
                 playlist_details = self.sp.playlist(playlist_id=playlist_id)
                 playlist_items = self.sp.playlist_items(playlist_id=playlist_id)
-                total_time = 0
                 print(f"  == Adding playlist {playlist_id} to cache... ==")
                 insert_playlist_details(self.cache_db_conn, self._cache_db_cursor, playlist_id, playlist_details["uri"],
                                         playlist_details["name"], snapshot_id)
@@ -112,17 +109,57 @@ class SpotifyTool(BaseTool):
                         insert_track_details(
                             self.cache_db_conn, self._cache_db_cursor, track_id, track_uri, track_name, track_popularity, main_artist_id, main_artist_name
                         )
-                        #print(f"    Adding track {track_name} to {playlist_details["name"]} to cache...")
-                        total_time += item["track"]["duration_ms"] / 1000
                         insert_playlist_track(
                             self.cache_db_conn, self._cache_db_cursor, playlist_id, track_id
                         )
+                        if playlist_id == self._preferred_playlist:
+                            print(f"  == SONG: {track_name} ==")
                     if not playlist_items["next"]:
                         break
                     playlist_items = self.sp.next(playlist_items)
-                    self.cache_db_conn.commit()
+            elif (playlist_id, snapshot_id) not in cached_playlists:
+                print(f"  == Playlist {playlist_id} has changed, updating cache... ==")
+                cached_tracks_ids = set(get_tracks_in_playlist(self.cache_db_conn, self._cache_db_cursor, playlist_id))
+                server_tracks_ids = set()
+                server_playlist_items = self.sp.playlist_items(playlist_id=playlist_id)
 
+                while True:
+                    for item in server_playlist_items["items"]:
+                        server_tracks_ids.add(item["track"]["id"])
+                    if not server_playlist_items["next"]:
+                        break
+                    server_playlist_items = self.sp.next(server_playlist_items)
 
+                track_intersection = cached_tracks_ids.intersection(server_tracks_ids)
+                tracks_to_delete = cached_tracks_ids - track_intersection
+                tracks_to_add = server_tracks_ids - track_intersection
+
+                print(f"Cache size: {len(cached_tracks_ids)}")
+                print(f"Server size: {len(server_tracks_ids)}")
+                print(f"Intersection size: {len(track_intersection)}")
+
+                if tracks_to_delete:
+                    for track in tracks_to_delete:
+                        delete_track(self.cache_db_conn, self._cache_db_cursor, track, playlist_id)
+                        print(f"Deleted track {track}")
+
+                if tracks_to_add:
+                    for track in tracks_to_add:
+                        track_details = self.sp.track(track)
+                        insert_track_details(
+                            self.cache_db_conn,
+                            self._cache_db_cursor,
+                            track,
+                            track_details["uri"],
+                            track_details["name"],
+                            track_details["popularity"],
+                            track_details[ "artists"][0]["id"], track_details["artists"][0]["name"]
+                        )
+                        insert_playlist_track(self.cache_db_conn, self._cache_db_cursor, playlist_id, track)
+                update_snapshot_id(self.cache_db_conn, self._cache_db_cursor, playlist_id, snapshot_id)
+            else:
+                print("Nothing changed")
+        self.cache_db_conn.commit()
         print("Done")
 
 
@@ -148,7 +185,6 @@ class SpotifyTool(BaseTool):
             for song_uri in songs_uris:
                 if song_uri in playlist_details["tracks"]:
                     if playlist_uri == self._preferred_playlist:
-                        print("KURWAAAA")
                         return playlist_details["playlist_uri"], song_uri
                     playlist_uri = playlist_details["playlist_uri"]
         return None
@@ -162,7 +198,7 @@ class SpotifyTool(BaseTool):
         top_tracks_from_query = self._get_top_search_results(query, 10)
         top_tracks_uris = [ track["track_uri"] for track in top_tracks_from_query]
 
-        truncate_cache_tables(self.cache_db_conn, self._cache_db_cursor)
+        #truncate_cache_tables(self.cache_db_conn, self._cache_db_cursor)
         self.cache_db_conn.commit()
         self._get_user_playlists_details()
 
