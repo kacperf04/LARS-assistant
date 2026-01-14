@@ -32,7 +32,7 @@ class CacheDB:
 
     def close(self) -> None:
         if self.connection:
-            
+            self.connection.commit()
             self.connection.close()
 
 
