@@ -32,7 +32,7 @@ class CacheDB:
 
     def close(self) -> None:
         if self.connection:
-            self.connection.commit()
+            
             self.connection.close()
 
 
@@ -131,7 +131,6 @@ class CacheDB:
         """Inserts the details of a playlist into the cache database."""
         query = "INSERT INTO playlists VALUES (?, ?, ?, ?)"
         self.cursor.execute(query, (playlist_id, playlist_uri, playlist_name, snapshot_id))
-        self.connection.commit()
 
 
     def insert_track_details(self, track_id: str, track_uri: str, track_name: str, track_popularity: float, artist_id: str, artist_name: str) -> None:
@@ -144,14 +143,12 @@ class CacheDB:
         if not track_id in all_tracks_ids:
             query = "INSERT INTO tracks VALUES (?, ?, ?, ?, ?)"
             self.cursor.execute(query, (track_id, track_uri, track_name, track_popularity, artist_id))
-        self.connection.commit()
 
 
     def insert_artist_details(self, artist_id: str, artist_name: str) -> None:
         """Inserts the details of an artist into the cache database."""
         query = "INSERT INTO artists VALUES (?, ?)"
         self.cursor.execute(query, (artist_id, artist_name))
-        self.connection.commit()
 
 
     def insert_playlist_track(self, playlist_id: str, track_id: str) -> None:
@@ -159,38 +156,32 @@ class CacheDB:
         if not track_id in self.get_tracks_in_playlist(playlist_id):
             query = "INSERT INTO playlist_tracks VALUES (?, ?)"
             self.cursor.execute(query, (playlist_id, track_id))
-        self.connection.commit()
 
 
     def update_snapshot_id(self, playlist_id: str, snapshot_id: str) -> None:
         """Updates the snapshot ID of a playlist in the cache database."""
         query = "UPDATE playlists SET snapshot_id = ? WHERE playlist_id = ?"
         self.cursor.execute(query, (snapshot_id, playlist_id))
-        self.connection.commit()
 
 
     def delete_track(self, track_id: str, playlist_id: str) -> None:
         """Deletes a track from the cache database."""
         pt_query = "DELETE FROM playlist_tracks WHERE track_id = ? AND playlist_id = ?"
         self.cursor.execute(pt_query, (track_id, playlist_id))
-        self.connection.commit()
 
         tracks_to_delete = self.get_leftover_tracks_ids()
         artists_to_delete = self.get_leftover_artists_ids()
         for track_id in tracks_to_delete:
             t_query = "DELETE FROM tracks WHERE track_id = ?"
             self.cursor.execute(t_query, (track_id, ))
-            self.connection.commit()
         for artist_id in artists_to_delete:
             a_query = "DELETE FROM artists WHERE artist_id = ?"
             self.cursor.execute(a_query, (artist_id, ))
-            self.connection.commit()
 
 
     def truncate_cache_tables(self) -> None:
         """Truncates all tables in the cache database."""
+        self.cursor.execute("DELETE FROM playlist_tracks")
+        self.cursor.execute("DELETE FROM tracks")
         self.cursor.execute("DELETE FROM playlists")
         self.cursor.execute("DELETE FROM artists")
-        self.cursor.execute("DELETE FROM tracks")
-        self.cursor.execute("DELETE FROM playlist_tracks")
-        self.connection.commit()
