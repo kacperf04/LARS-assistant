@@ -119,8 +119,9 @@ class SpotifyTool(BaseTool):
         :param snapshot_id -- the snapshot ID of the playlist
         :return: None
         """
-        playlist_details = self.sp.playlist(playlist_id=playlist_id)
-        playlist_items = self.sp.playlist_items(playlist_id=playlist_id)
+        playlist_details = self.sp.playlist(playlist_id=playlist_id, fields="uri,name")
+        playlist_items = self.sp.playlist_items(playlist_id=playlist_id, fields="items.track(id,uri,name,popularity,artists(id,name)),next")
+        tracks_insert_params = []
 
         with CacheDB() as db:
             db.insert_playlist_details(playlist_id, playlist_details["uri"], playlist_details["name"], snapshot_id)
@@ -130,11 +131,12 @@ class SpotifyTool(BaseTool):
                     track_info = item["track"]["id"], item["track"]["uri"], item["track"]["name"], item["track"]["popularity"]
                     artist_info = item["track"]["artists"][0]["id"], item["track"]["artists"][0]["name"]
 
-                    db.insert_track_details(*track_info, *artist_info)
-                    db.insert_playlist_track(playlist_id, track_info[0])
+                    tracks_insert_params.append((track_info + artist_info))
                 if not playlist_items["next"]:
                     break
                 playlist_items = self.sp.next(playlist_items)
+
+            db.insert_uncached_tracks(playlist_id, tracks_insert_params)
 
 
     def _handle_snapshot_id_change(self, playlist_id: str, snapshot_id: str) -> None:
@@ -166,16 +168,24 @@ class SpotifyTool(BaseTool):
                     print(f"Deleted track {track}")
 
             if tracks_to_add:
-                for track in tracks_to_add:
-                    track_details = self.sp.track(track)
-                    db.insert_track_details(
-                        track,
-                        track_details["uri"],
-                        track_details["name"],
-                        track_details["popularity"],
-                        track_details["artists"][0]["id"], track_details["artists"][0]["name"]
-                    )
-                    db.insert_playlist_track(playlist_id, track)
+                tracks_insert_params = []
+                tracks_to_add = list(tracks_to_add)
+                tracks_to_add = [tracks_to_add[i : i + 50] for i in range(0, len(tracks_to_add), 50)]
+
+                for batch in tracks_to_add:
+                    tracks_details = self.sp.tracks(batch)["tracks"]
+                    for track in tracks_details:
+                        tracks_insert_params.append(
+                            (
+                                track["id"],
+                                track["uri"],
+                                track["name"],
+                                track["popularity"],
+                                track["artists"][0]["id"], track["artists"][0]["name"],
+                            )
+                        )
+                db.insert_uncached_tracks(playlist_id, tracks_insert_params)
+
             db.update_snapshot_id(playlist_id, snapshot_id)
 
 
