@@ -136,17 +136,6 @@ class CacheDB:
         self.cursor.execute(query, (playlist_id, playlist_uri, playlist_name, snapshot_id))
 
 
-    def insert_track_details(self, track_id: str, track_uri: str, track_name: str, track_popularity: float, artist_id: str, artist_name: str) -> None:
-        """Inserts the details of a track into the cache database."""
-        is_artist_in_db = self.cursor.execute("SELECT artist_id FROM artists WHERE artist_id = ?", (artist_id,)).fetchone() is not None
-        if not is_artist_in_db:
-            self.insert_artist_details(artist_id, artist_name)
-        all_tracks_ids = self.get_tracks_ids()
-        if not track_id in all_tracks_ids:
-            query = "INSERT INTO tracks VALUES (?, ?, ?, ?, ?)"
-            self.cursor.execute(query, (track_id, track_uri, track_name, track_popularity, artist_id))
-
-
     def insert_uncached_tracks(self, playlist_id: str, tracks: list[tuple[str, str, str, float, str, str]]) -> None:
         """Inserts multiple tracks into the cache database."""
         artists_to_insert = []
@@ -154,14 +143,10 @@ class CacheDB:
         tracks_to_insert_ids = []
         for track in tracks:
             track_id, track_uri, track_name, track_popularity, artist_id, artist_name = track
-            is_artist_in_db = self.cursor.execute("SELECT artist_id FROM artists WHERE artist_id = ?", (artist_id,)).fetchone() is not None
-            if not is_artist_in_db:
-                artists_to_insert.append((artist_id, artist_name))
-            all_tracks_ids = self.get_tracks_ids()
-            if not track_id in all_tracks_ids:
-                tracks_to_insert.append((track_id, track_uri, track_name, track_popularity, artist_id))
-            if not track_id in self.get_tracks_in_playlist(playlist_id):
-                tracks_to_insert_ids.append(track_id)
+
+            artists_to_insert.append((artist_id, artist_name))
+            tracks_to_insert.append((track_id, track_uri, track_name, track_popularity, artist_id))
+            tracks_to_insert_ids.append(track_id)
         self.cursor.executemany("INSERT OR IGNORE INTO artists VALUES (?, ?)", artists_to_insert)
         self.cursor.executemany("INSERT OR IGNORE INTO tracks VALUES (?, ?, ?, ?, ?)", tracks_to_insert)
         self.cursor.executemany("INSERT OR IGNORE INTO playlist_tracks VALUES (?, ?)", [(playlist_id, track_id) for track_id in tracks_to_insert_ids])
