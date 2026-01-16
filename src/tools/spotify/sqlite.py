@@ -51,6 +51,7 @@ class CacheDB:
                 artist_id TEXT PRIMARY KEY,
                 artist_name TEXT NOT NULL
             );
+                CREATE UNIQUE INDEX IF NOT EXISTS artist_id_index ON artists (artist_id, artist_name);
         """
         tracks_table_query = """
             CREATE TABLE IF NOT EXISTS tracks (
@@ -61,6 +62,7 @@ class CacheDB:
                 artist_id TEXT NOT NULL,
                 FOREIGN KEY (artist_id) REFERENCES artists(artist_id)
             );
+            CREATE UNIQUE INDEX IF NOT EXISTS track_id_index ON tracks (track_id, track_name, track_popularity, artist_id);
         """
         playlist_tracks_table_query = """
             CREATE TABLE IF NOT EXISTS playlist_tracks (
@@ -70,6 +72,7 @@ class CacheDB:
                 FOREIGN KEY (playlist_id) REFERENCES playlists(playlist_id),
                 FOREIGN KEY (track_id) REFERENCES tracks(track_id)
             );
+            CREATE INDEX IF NOT EXISTS playlist_tracks_index ON playlist_tracks (playlist_id, track_id);
         """
 
         self.cursor.executescript(f"""
@@ -135,7 +138,6 @@ class CacheDB:
 
     def insert_track_details(self, track_id: str, track_uri: str, track_name: str, track_popularity: float, artist_id: str, artist_name: str) -> None:
         """Inserts the details of a track into the cache database."""
-        track_name = track_name.replace("'", "''")
         is_artist_in_db = self.cursor.execute("SELECT artist_id FROM artists WHERE artist_id = ?", (artist_id,)).fetchone() is not None
         if not is_artist_in_db:
             self.insert_artist_details(artist_id, artist_name)
@@ -143,6 +145,26 @@ class CacheDB:
         if not track_id in all_tracks_ids:
             query = "INSERT INTO tracks VALUES (?, ?, ?, ?, ?)"
             self.cursor.execute(query, (track_id, track_uri, track_name, track_popularity, artist_id))
+
+
+    def insert_uncached_tracks(self, playlist_id: str, tracks: list[tuple[str, str, str, float, str, str]]) -> None:
+        """Inserts multiple tracks into the cache database."""
+        artists_to_insert = []
+        tracks_to_insert = []
+        tracks_to_insert_ids = []
+        for track in tracks:
+            track_id, track_uri, track_name, track_popularity, artist_id, artist_name = track
+            is_artist_in_db = self.cursor.execute("SELECT artist_id FROM artists WHERE artist_id = ?", (artist_id,)).fetchone() is not None
+            if not is_artist_in_db:
+                artists_to_insert.append((artist_id, artist_name))
+            all_tracks_ids = self.get_tracks_ids()
+            if not track_id in all_tracks_ids:
+                tracks_to_insert.append((track_id, track_uri, track_name, track_popularity, artist_id))
+            if not track_id in self.get_tracks_in_playlist(playlist_id):
+                tracks_to_insert_ids.append(track_id)
+        self.cursor.executemany("INSERT OR IGNORE INTO artists VALUES (?, ?)", artists_to_insert)
+        self.cursor.executemany("INSERT OR IGNORE INTO tracks VALUES (?, ?, ?, ?, ?)", tracks_to_insert)
+        self.cursor.executemany("INSERT OR IGNORE INTO playlist_tracks VALUES (?, ?)", [(playlist_id, track_id) for track_id in tracks_to_insert_ids])
 
 
     def insert_artist_details(self, artist_id: str, artist_name: str) -> None:
