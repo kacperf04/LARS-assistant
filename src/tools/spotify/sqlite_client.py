@@ -5,7 +5,7 @@ from typing import Optional
 
 
 class CacheDB:
-    def __init__(self, db_path: str = "./tools/spotify/.cache/spotify.db") -> None:
+    def __init__(self, db_path: str = "./tools/spotify/.cache/sqlite/spotify.db") -> None:
         self.db_path = db_path
         self.connection: Optional[sqlite3.Connection] = None
         self.cursor: Optional[sqlite3.Cursor] = None
