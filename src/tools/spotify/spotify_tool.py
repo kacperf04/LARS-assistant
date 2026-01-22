@@ -4,7 +4,8 @@ import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 import re
 from src.tools.base_tool import BaseTool
-from src.tools.spotify.sqlite import CacheDB
+from src.tools.spotify.chromadb_client import ChromaDBClient
+from src.tools.spotify.sqlite_client import CacheDB
 
 
 class SpotifyTool(BaseTool):
@@ -26,6 +27,7 @@ class SpotifyTool(BaseTool):
         self.sp = spotipy.Spotify(
             auth_manager=SpotifyOAuth(scope="user-modify-playback-state user-read-playback-state")
         )
+        self.chromadb_client = ChromaDBClient()
         self._action_keywords = {
             "resume": ["resume", "resume playing", "continue", "unpause", "keep playing"],
             "next": ["next", "skip", "forward", "another one"],
@@ -122,14 +124,29 @@ class SpotifyTool(BaseTool):
         playlist_details = self.sp.playlist(playlist_id=playlist_id, fields="uri,name")
         playlist_items = self.sp.playlist_items(playlist_id=playlist_id, fields="items.track(id,uri,name,popularity,artists(id,name)),next")
         tracks_insert_params = []
+        chroma_insert_params = []
 
         with CacheDB() as db:
             db.insert_playlist_details(playlist_id, playlist_details["uri"], playlist_details["name"], snapshot_id)
+            self.chromadb_client.add_data([{
+                "id": playlist_id,
+                "type": "playlist",
+                "name": playlist_details["name"],
+                "uri": playlist_details["uri"],
+                "artist": "Unknown"
+            }])
 
             while True:
                 for item in playlist_items["items"]:
                     track_info = item["track"]["id"], item["track"]["uri"], item["track"]["name"], item["track"]["popularity"]
                     artist_info = item["track"]["artists"][0]["id"], item["track"]["artists"][0]["name"]
+                    chroma_insert_params.append({
+                        "id": track_info[0],
+                        "type": "track",
+                        "name": track_info[2],
+                        "uri": track_info[1],
+                        "artist": artist_info[1]
+                    })
 
                     tracks_insert_params.append((track_info + artist_info))
                 if not playlist_items["next"]:
@@ -137,6 +154,7 @@ class SpotifyTool(BaseTool):
                 playlist_items = self.sp.next(playlist_items)
 
             db.insert_uncached_tracks(playlist_id, tracks_insert_params)
+            self.chromadb_client.add_data(chroma_insert_params)
 
 
     def _handle_snapshot_id_change(self, playlist_id: str, snapshot_id: str) -> None:
