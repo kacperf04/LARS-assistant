@@ -133,7 +133,8 @@ class SpotifyTool(BaseTool):
                 "type": "playlist",
                 "name": playlist_details["name"],
                 "uri": playlist_details["uri"],
-                "artist": "Unknown"
+                "artist": "Unknown",
+                "playlist_id": "Unknown"
             }])
 
             while True:
@@ -145,7 +146,8 @@ class SpotifyTool(BaseTool):
                         "type": "track",
                         "name": track_info[2],
                         "uri": track_info[1],
-                        "artist": artist_info[1]
+                        "artist": artist_info[1],
+                        "playlist_id": playlist_id
                     })
 
                     tracks_insert_params.append((track_info + artist_info))
@@ -183,10 +185,12 @@ class SpotifyTool(BaseTool):
             if tracks_to_delete:
                 for track in tracks_to_delete:
                     db.delete_track(track, playlist_id)
+                    self.chromadb_client.delete_data(ids=[track], where={"playlist_id": playlist_id})
                     print(f"Deleted track {track}")
 
             if tracks_to_add:
                 tracks_insert_params = []
+                chroma_insert_params = []
                 tracks_to_add = list(tracks_to_add)
                 tracks_to_add = [tracks_to_add[i : i + 50] for i in range(0, len(tracks_to_add), 50)]
 
@@ -202,7 +206,16 @@ class SpotifyTool(BaseTool):
                                 track["artists"][0]["id"], track["artists"][0]["name"],
                             )
                         )
+                        chroma_insert_params.append({
+                            "id": track["id"],
+                            "type": "track",
+                            "playlist_id": playlist_id,
+                            "name": track["name"],
+                            "uri": track["uri"],
+                            "artist": track["artists"][0]["name"]
+                        })
                 db.insert_uncached_tracks(playlist_id, tracks_insert_params)
+                self.chromadb_client.add_data(chroma_insert_params)
 
             db.update_snapshot_id(playlist_id, snapshot_id)
 
