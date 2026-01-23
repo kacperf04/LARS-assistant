@@ -39,35 +39,54 @@ class ChromaDBClient:
         if not self.collection:
             return
 
-        ids = []
-        documents = []
-        metadatas = []
+        batch_ids, batch_docs, batch_metas = [], [], []
+        seen_ids = set()
 
         for item in data_list:
-            ids.append(item["id"])
+            is_track = item["type"] == "track"
+            unique_id = f"{item["playlist_id"]}_{item["id"]}" if is_track else item["id"]
+            if unique_id in seen_ids:
+                continue
+            seen_ids.add(unique_id)
+            doc = f"Track: {item['name']} by {item.get('artist', 'Unknown')}" if is_track else f"Playlist: {item['name']}"
 
-            if item["type"] == "track":
-                doc = f"Track: {item["name"]} by {item["artist"]}"
+            if is_track:
+                metadata = {
+                    "type": "track",
+                    "uri": item["uri"],
+                    "artist": item.get("artist", "Unknown"),
+                    "playlist_id": item.get("playlist_id", "Unknown")
+                }
             else:
-                doc = f"Playlist: {item['name']}. A collection of music."
+                metadata = {
+                    "type": "playlist",
+                    "uri": item["uri"]
+                }
 
-            documents.append(doc)
+            batch_ids.append(unique_id)
+            batch_docs.append(doc)
+            batch_metas.append(metadata)
 
-            metadatas.append({
-                "type": item["type"],
-                "uri": item["uri"],
-                "artist": item.get("artist", "Unknown")
-            })
+        chunk_size = 100
+        for i in range(0, len(batch_ids), chunk_size):
+            try:
+                self.collection.upsert(
+                    ids=batch_ids[i:i+chunk_size],
+                    documents=batch_docs[i:i+chunk_size],
+                    metadatas=batch_metas[i:i+chunk_size]
+                )
+            except Exception as e:
+                print(f"Error adding data to Chroma as index {i}: {e}")
 
-        try:
-            self.collection.upsert(
-                ids=ids,
-                documents=documents,
-                metadatas=metadatas
-            )
-            print(f"Synched {len(ids)} items to Chroma database.")
-        except Exception as e:
-            print(f"Error adding data to Chroma database: {e}")
+        print(f"Sync attempted for {len(batch_ids)} items.")
+
+
+    def delete_data(self, ids: list[str], where: dict[str, str]) -> None:
+        """Deletes the given items from the Chroma database."""
+        if not self.collection or not ids:
+            return
+
+        self.collection.delete(ids=ids, where=where)
 
 
     def query_music(self, query: str, n_results: int = 10) -> list[dict]:
