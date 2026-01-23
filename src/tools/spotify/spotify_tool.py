@@ -47,12 +47,29 @@ class SpotifyTool(BaseTool):
         actions, query = self._extract_keywords(query, self._action_keywords)
         device_type, query = self._extract_keywords(query, self._device_keywords)
 
-        top_tracks_from_query = self._get_top_search_results(query, 10)
-        top_tracks_uris = [ track["track_uri"] for track in top_tracks_from_query]
-
-        self._get_user_playlists_details()
+        self._load_user_playlists_details()
+        result_metadata, llm_input_command = self._get_data_from_chroma(query, 1)
 
         return query
+
+
+    def _get_data_from_chroma(self, query: str, limit: int) -> tuple[dict, str]:
+        """Retrieves data from ChromaDB based on the given query"""
+        result = self.chromadb_client.query_music(query, limit)
+        result_output, result_metadata = result["documents"][0][0], result["metadatas"][0][0]
+        result_type = result_metadata["type"]
+
+        if result_type == "track":
+            return {
+                "type": "track",
+                "track_uri": result_metadata["uri"],
+                "playlist_id": result_metadata["playlist_id"]
+            }, result_output
+        else:
+            return {
+                "type": "playlist",
+                "playlist_uri": result_metadata["uri"]
+            }, result_output
 
 
     def _extract_keywords(self, query: str, keyword_map: dict[str, list[str]]) -> tuple[list[str], str]:
@@ -88,7 +105,7 @@ class SpotifyTool(BaseTool):
         return tracks
 
 
-    def _get_user_playlists_details(self) -> None:
+    def _load_user_playlists_details(self) -> None:
         """
         Retrieves the details(uri and name) of all the playlists owned by the current user and saves them in the cache database
         :return: None
@@ -233,18 +250,6 @@ class SpotifyTool(BaseTool):
         ]
         results.sort(key=lambda x: x["track_popularity"], reverse=True)
         return results
-
-
-    def _get_track_from_users_playlist(self, songs_uris: List[str]) -> Tuple[str, str] | None:
-        """Checks if the given song is present in any of the user's playlists."""
-        playlist_uri = None
-        for playlist_id, playlist_details in self._users_playlists.items():
-            for song_uri in songs_uris:
-                if song_uri in playlist_details["tracks"]:
-                    if playlist_uri == self._preferred_playlist:
-                        return playlist_details["playlist_uri"], song_uri
-                    playlist_uri = playlist_details["playlist_uri"]
-        return None
 
 
     def _get_active_device(self, device_type: str = "smartphone"):
