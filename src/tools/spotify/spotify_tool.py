@@ -39,18 +39,51 @@ class SpotifyTool(BaseTool):
             "phone": ["phone", "cellphone", "mobile", "smartphone", "iphone", "android"],
             "computer": ["computer", "laptop", "desktop", "pc"]
         }
+        self._device_id = None
         self._preferred_playlist = "spotify:playlist:2300cDk2Vk3GdKFfEY8ceX"
 
 
     def run(self, query: str) -> str:
         """Performs a search on Spotify based on the query"""
         actions, query = self._extract_keywords(query, self._action_keywords)
-        device_type, query = self._extract_keywords(query, self._device_keywords)
+        self._device_id, query = self._extract_keywords(query, self._device_keywords)
 
         self._load_user_playlists_details()
         result_metadata, llm_input_command = self._get_data_from_chroma(query, 1)
+        self._process_action(actions[0], result_metadata)
+        print(actions)
 
-        return query
+        return llm_input_command
+
+
+    def _process_action(self, action: str, chroma_metadata: dict) -> None:
+        """Processes the extracted action and performs the corresponding action on Spotify"""
+        match action:
+            case "resume":
+                pass
+            case "next":
+                pass
+            case "prev":
+                pass
+            case "play":
+                self._start_playback(chroma_metadata)
+            case "stop":
+                pass
+            case _:
+                print(f"Action {action} not supported")
+
+
+    def _start_playback(self, chroma_metadata: dict) -> None:
+        """Starts playback on Spotify using the given metadata"""
+        if chroma_metadata["type"] == "track":
+            playlist_uri = f"spotify:playlist:{chroma_metadata["playlist_id"]}"
+            self.sp.start_playback(
+                device_id=self._device_id,
+                context_uri=playlist_uri,
+                offset= {
+                    "uri": chroma_metadata["track_uri"]
+                }
+            )
 
 
     def _get_data_from_chroma(self, query: str, limit: int) -> tuple[dict, str]:
