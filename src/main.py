@@ -16,5 +16,6 @@ if __name__ == "__main__":
     with CacheDB() as db:
         db.truncate_cache_tables()
     '''
+
     spClient = SpotifyTool()
-    spClient.run("play colors")
+    spClient.run("play something about killing")
