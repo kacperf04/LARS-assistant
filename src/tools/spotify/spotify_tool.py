@@ -6,6 +6,7 @@ import re
 from src.tools.base_tool import BaseTool
 from src.tools.spotify.chromadb_client import ChromaDBClient
 from src.tools.spotify.sqlite_client import CacheDB
+from datetime import datetime, timezone
 
 
 class SpotifyTool(BaseTool):
@@ -172,9 +173,10 @@ class SpotifyTool(BaseTool):
         :return: None
         """
         playlist_details = self.sp.playlist(playlist_id=playlist_id, fields="uri,name")
-        playlist_items = self.sp.playlist_items(playlist_id=playlist_id, fields="items.track(id,uri,name,popularity,artists(id,name)),next")
+        playlist_items = self.sp.playlist_items(playlist_id=playlist_id, fields="items.track(id,uri,name,popularity,artists(id,name)),next,items.added_at")
         tracks_insert_params = []
         chroma_insert_params = []
+        latest_track_added_at = datetime.min.replace(tzinfo=timezone.utc)
 
         with CacheDB() as db:
             db.insert_playlist_details(playlist_id, playlist_details["uri"], playlist_details["name"], snapshot_id)
@@ -201,12 +203,14 @@ class SpotifyTool(BaseTool):
                     })
 
                     tracks_insert_params.append((track_info + artist_info))
+                    latest_track_added_at = max(latest_track_added_at, datetime.fromisoformat(item["added_at"]))
                 if not playlist_items["next"]:
                     break
                 playlist_items = self.sp.next(playlist_items)
 
             db.insert_uncached_tracks(playlist_id, tracks_insert_params)
             self.chromadb_client.add_data(chroma_insert_params)
+            db.update_playlist_last_modified(playlist_id, latest_track_added_at)
 
 
     def _handle_snapshot_id_change(self, playlist_id: str, snapshot_id: str) -> None:
@@ -268,6 +272,7 @@ class SpotifyTool(BaseTool):
                 self.chromadb_client.add_data(chroma_insert_params)
 
             db.update_snapshot_id(playlist_id, snapshot_id)
+            db.update_playlist_last_modified(playlist_id, str(datetime.now(tz=timezone.utc)))
 
 
     def _get_top_search_results(self, query: str, limit: int, search_type: str = "track") -> List[Dict[str, str | float]]:

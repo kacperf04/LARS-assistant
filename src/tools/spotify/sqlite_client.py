@@ -43,7 +43,8 @@ class CacheDB:
                 playlist_id TEXT PRIMARY KEY,
                 playlist_uri TEXT NOT NULL,
                 playlist_name TEXT NOT NULL,
-                snapshot_id TEXT NOT NULL
+                snapshot_id TEXT NOT NULL,
+                last_modified TEXT
             );
         """
         artists_table_query = """
@@ -132,8 +133,14 @@ class CacheDB:
 
     def insert_playlist_details(self, playlist_id: str, playlist_uri: str, playlist_name: str, snapshot_id: str) -> None:
         """Inserts the details of a playlist into the cache database."""
-        query = "INSERT INTO playlists VALUES (?, ?, ?, ?)"
+        query = "INSERT INTO playlists(playlist_id, playlist_uri, playlist_name, snapshot_id) VALUES (?, ?, ?, ?)"
         self.cursor.execute(query, (playlist_id, playlist_uri, playlist_name, snapshot_id))
+
+
+    def update_playlist_last_modified(self, playlist_id: str, last_modified: str) -> None:
+        """Updates the last modified timestamp of a playlist in the cache database."""
+        query = "UPDATE playlists SET last_modified = ? WHERE playlist_id = ?"
+        self.cursor.execute(query, (last_modified, playlist_id ))
 
 
     def insert_uncached_tracks(self, playlist_id: str, tracks: list[tuple[str, str, str, float, str, str]]) -> None:
