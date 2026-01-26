@@ -131,6 +131,10 @@ class CacheDB:
         return self.cursor.execute(query).fetchall()
 
 
+    def get_playlists_last_modified(self, playlists_ids: list[str]) -> list[tuple[str, str]]:
+        query = f"SELECT playlist_id, last_modified FROM playlists WHERE playlist_id IN ({",".join(["?"] * len(playlists_ids))})"
+        return self.cursor.execute(query, tuple(playlists_ids)).fetchall()
+
     def insert_playlist_details(self, playlist_id: str, playlist_uri: str, playlist_name: str, snapshot_id: str) -> None:
         """Inserts the details of a playlist into the cache database."""
         query = "INSERT INTO playlists(playlist_id, playlist_uri, playlist_name, snapshot_id) VALUES (?, ?, ?, ?)"

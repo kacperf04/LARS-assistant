@@ -50,11 +50,12 @@ class SpotifyTool(BaseTool):
         self._device_id, query = self._extract_keywords(query, self._device_keywords)
 
         self._load_user_playlists_details()
-        result_metadata, llm_input_command = self._get_data_from_chroma(query, 1)
+        result_metadata = self._get_data_from_chroma(query, 10)
+        print(result_metadata)
         self._process_action(actions[0], result_metadata)
         print(actions)
 
-        return llm_input_command
+        return "llm_input_command"
 
 
     def _process_action(self, action: str, chroma_metadata: dict) -> None:
@@ -82,28 +83,42 @@ class SpotifyTool(BaseTool):
                 device_id=self._device_id,
                 context_uri=playlist_uri,
                 offset= {
-                    "uri": chroma_metadata["track_uri"]
+                    "uri": chroma_metadata["uri"]
                 }
             )
+        else:
+            self.sp.start_playback(device_id=self._device_id, context_uri=chroma_metadata["uri"])
 
 
-    def _get_data_from_chroma(self, query: str, limit: int) -> tuple[dict, str]:
+    def _get_data_from_chroma(self, query: str, limit: int) -> dict:
         """Retrieves data from ChromaDB based on the given query"""
         result = self.chromadb_client.query_music(query, limit)
-        result_output, result_metadata = result["documents"][0][0], result["metadatas"][0][0]
-        result_type = result_metadata["type"]
+        result_tracks_count, result_playlists_count = 0, 0
+        tracks_metadata = []
+        for item in result["metadatas"][0]:
+            if item["type"] == "track":
+                result_tracks_count += 1
+                tracks_metadata.append(item)
+            else:
+                result_playlists_count += 1
+        data_type = "track" if result_tracks_count >= result_playlists_count else "playlist" # for now the majority of types win
 
-        if result_type == "track":
-            return {
-                "type": "track",
-                "track_uri": result_metadata["uri"],
-                "playlist_id": result_metadata["playlist_id"]
-            }, result_output
+        if data_type == "track":
+            return self._get_top_chroma_track(tracks_metadata)
         else:
-            return {
-                "type": "playlist",
-                "playlist_uri": result_metadata["uri"]
-            }, result_output
+            return result["metadatas"][0][0]
+
+
+
+    def _get_top_chroma_track(self, metadatas: list[dict]) -> dict:
+        all_playlists_ids = [meta["playlist_id"] for meta in metadatas]
+        with (CacheDB() as db):
+            sorted_playlists_ids = db.get_playlists_last_modified(all_playlists_ids)
+            sorted_playlists_ids.sort(
+                key=lambda x: x[1], reverse=True
+            )
+        top_playlist_id = sorted_playlists_ids[0][0]
+        return metadatas[all_playlists_ids.index(top_playlist_id)]
 
 
     def _extract_keywords(self, query: str, keyword_map: dict[str, list[str]]) -> tuple[list[str], str]:
