@@ -10,7 +10,7 @@ vectorizer = joblib.load('./classifier/pkl/vectorizer.pkl')
 
 if __name__ == "__main__":
     load_dotenv()
-    db = ChromaDBClient()
+    chroma_db = ChromaDBClient()
     '''
     db.client.delete_collection("music_library")
     with CacheDB() as db:
@@ -18,4 +18,4 @@ if __name__ == "__main__":
     '''
 
     spClient = SpotifyTool()
-    spClient.run("play something about killing")
+    spClient.run("play something jazzy")
