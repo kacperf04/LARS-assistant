@@ -1,3 +1,6 @@
+import os
+import subprocess
+import time
 from typing import Dict, List, Tuple
 
 import spotipy
@@ -7,6 +10,8 @@ from src.tools.base_tool import BaseTool
 from src.tools.spotify.chromadb_client import ChromaDBClient
 from src.tools.spotify.sqlite_client import CacheDB
 from datetime import datetime, timezone
+
+from dotenv import load_dotenv
 
 
 class SpotifyTool(BaseTool):
@@ -25,6 +30,7 @@ class SpotifyTool(BaseTool):
     """
     def __init__(self):
         super().__init__("Spotify")
+        load_dotenv()
         self.sp = spotipy.Spotify(
             auth_manager=SpotifyOAuth(scope="user-modify-playback-state user-read-playback-state")
         )
@@ -40,20 +46,23 @@ class SpotifyTool(BaseTool):
             "phone": ["phone", "cellphone", "mobile", "smartphone", "iphone", "android"],
             "computer": ["computer", "laptop", "desktop", "pc"]
         }
-        self._device_id = None
+        self._device_type = "phone"
+        self._device_id = ""
         self._preferred_playlist = "spotify:playlist:2300cDk2Vk3GdKFfEY8ceX"
 
 
     def run(self, query: str) -> str:
         """Performs a search on Spotify based on the query"""
         actions, query = self._extract_keywords(query, self._action_keywords)
-        self._device_id, query = self._extract_keywords(query, self._device_keywords)
+        self._device_type, query = self._extract_keywords(query, self._device_keywords)
+        if self._device_type is None or len(self._device_type) == 0:
+            self._device_type = "phone"
+        self._wake_up_spotify(self._device_type)
+        self._device_id = self._get_device_id()
 
         self._load_user_playlists_details()
         result_metadata = self._get_data_from_chroma(query, 10)
-        print(result_metadata)
         self._process_action(actions[0], result_metadata)
-        print(actions)
 
         return "llm_input_command"
 
@@ -305,22 +314,58 @@ class SpotifyTool(BaseTool):
         return results
 
 
-    def _get_active_device(self, device_type: str = "smartphone"):
-        """Checks if any devices are currently active, if not it wakes up the first device available"""
+    def _wake_up_spotify(self, device: str):
+        if device == "phone":
+            self._wake_up_phone()
+
+
+    def _wake_up_phone(self):
+        phone_ip = os.environ.get("PHONE_IP")
+        debug_port = os.environ.get("PHONE_DEBUG_PORT")
+        phone_pin = os.environ.get("PHONE_PIN")
+
+        if not all([phone_ip, debug_port, phone_pin]):
+            print("Error: Missing at least one environment variable.")
+            return
+
+        device_id = f"{phone_ip}:{debug_port}"
+
+        def adb(command: str, delay: float = 0.5):
+            try:
+                if command.startswith("connect"):
+                    cmd = ["adb"] + command.split()
+                else:
+                    cmd = ["adb", "-s", device_id] + command.split()
+
+                subprocess.run(cmd, check=True)
+
+                if delay > 0:
+                    time.sleep(delay)
+
+            except subprocess.CalledProcessError as e:
+                print(f"ADB command failed: {e}")
+
+        print("Waking up phone...")
+        adb(f"connect {device_id}", delay=1)
+
+        adb("shell input keyevent 223", delay=1)
+        adb("shell input keyevent 224", delay=0.5)
+
+        adb("shell input swipe 500 2000 500 200 150", delay=0.5)
+        adb(f"shell input text {phone_pin}", delay=1)
+
+        adb("shell monkey -p com.spotify.music -c android.intent.category.LAUNCHER 1", delay=2)
+
+        adb("shell input keyevent 126", delay=3.0)
+
+        print("Sequence complete.")
+
+
+    def _get_device_id(self) -> str | None:
         devices = self.sp.devices().get("devices", [])
 
-        if not devices:
-            return None
+        for device in devices:
+            if device["type"] == self._device_type and device["is_active"]:
+                return device["id"]
 
-        for d in devices:
-            if d["is_active"]:
-                return d["id"]
-
-        for d in devices:
-            if d["type"] == device_type:
-                self.sp.transfer_playback(device_id=d["id"], force_play=True)
-                return d["id"]
-
-        return devices[0]["id"]
-
-
+        return None
