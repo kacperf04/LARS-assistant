@@ -1,3 +1,4 @@
+import logging
 import os
 import subprocess
 import time
@@ -13,6 +14,7 @@ from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 
+logger = logging.getLogger(__name__)
 
 class SpotifyTool(BaseTool):
     """
@@ -81,7 +83,7 @@ class SpotifyTool(BaseTool):
             case "stop":
                 pass
             case _:
-                print(f"Action {action} not supported")
+                logger.error(f"Action {action} not supported")
 
 
     def _start_playback(self, chroma_metadata: dict) -> None:
@@ -157,9 +159,9 @@ class SpotifyTool(BaseTool):
         :param playlist_id -- the ID of the playlist to retrieve tracks from
         :return: a list of URIs of all the tracks in the playlist
         """
-        print(f"  == Fetching tracks from playlist {playlist_id}... ==")
+        logger.info(f"Fetching tracks from playlist {playlist_id}")
         tracks = [ item["track"]["uri"] for item in self.sp.playlist_items(playlist_id=playlist_id, fields="items.track.uri")["items"] ]
-        print("  Done")
+        logger.info("Done")
         return tracks
 
 
@@ -168,7 +170,7 @@ class SpotifyTool(BaseTool):
         Retrieves the details(uri and name) of all the playlists owned by the current user and saves them in the cache database
         :return: None
         """
-        print("== Checking cache for playlists... ==")
+        logger.info("Checking cache for playlists...")
         with CacheDB() as db:
             cached_playlists = db.get_playlists_ids_and_snapshot_ids()
         cached_playlist_ids = [ playlist_id for playlist_id, _ in cached_playlists ]
@@ -178,15 +180,15 @@ class SpotifyTool(BaseTool):
 
         for playlist_id, snapshot_id in server_playlists:
             if playlist_id not in cached_playlist_ids:
-                print(f"  == Adding playlist {playlist_id} to cache... ==")
+                logger.info(f"Adding playlist {playlist_id} to cache")
                 self._handle_uncached_playlist(playlist_id, snapshot_id)
             elif (playlist_id, snapshot_id) not in cached_playlists:
-                print(f"  == Playlist {playlist_id} has changed, updating cache... ==")
+                logger.info(f"Playlist {playlist_id} has changed, updating cache")
                 self._handle_snapshot_id_change(playlist_id, snapshot_id)
             else:
-                print(f" == Playlist {playlist_id} already in cache and up to date. ==")
+                logger.info(f"Playlist {playlist_id} already in cache and up to date")
 
-        print("Done")
+        logger.info("Done")
 
 
     def _handle_uncached_playlist(self, playlist_id: str, snapshot_id: str) -> None:
@@ -264,7 +266,7 @@ class SpotifyTool(BaseTool):
                 for track in tracks_to_delete:
                     db.delete_track(track, playlist_id)
                     self.chromadb_client.delete_data(ids=[track], where={"playlist_id": playlist_id})
-                    print(f"Deleted track {track}")
+                    logger.info(f"Deleted track {track}")
 
             if tracks_to_add:
                 tracks_insert_params = []
@@ -325,7 +327,7 @@ class SpotifyTool(BaseTool):
         phone_pin = os.environ.get("PHONE_PIN")
 
         if not all([phone_ip, debug_port, phone_pin]):
-            print("Error: Missing at least one environment variable.")
+            logger.error("Error: Missing at least one environment variable.")
             return
 
         device_id = f"{phone_ip}:{debug_port}"
@@ -343,9 +345,9 @@ class SpotifyTool(BaseTool):
                     time.sleep(delay)
 
             except subprocess.CalledProcessError as e:
-                print(f"ADB command failed: {e}")
+                logger.error(f"ADB command failed: {e}")
 
-        print("Waking up phone...")
+        logger.info("Waking up phone...")
         adb(f"connect {device_id}", delay=1)
 
         adb("shell input keyevent 223", delay=1)
@@ -358,7 +360,7 @@ class SpotifyTool(BaseTool):
 
         adb("shell input keyevent 126", delay=3.0)
 
-        print("Sequence complete.")
+        logger.info("Sequence complete.")
 
 
     def _get_device_id(self) -> str | None:
