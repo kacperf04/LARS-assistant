@@ -2,7 +2,9 @@
 
 import sqlite3
 from typing import Optional
+import logging
 
+logger = logging.getLogger(__name__)
 
 class CacheDB:
     def __init__(self, db_path: str = "./tools/spotify/.cache/sqlite/spotify.db") -> None:
@@ -27,7 +29,7 @@ class CacheDB:
             self.cursor.execute("PRAGMA foreign_keys = ON;")
             self._create_tables()
         except sqlite3.Error as e:
-            print(f"Error connecting to database: {e}")
+            logger.error(f"Error connecting to database: {e}")
 
 
     def close(self) -> None:

@@ -1,5 +1,8 @@
 from typing import Optional
 import chromadb
+import logging
+
+logger = logging.getLogger(__name__)
 
 class ChromaDBClient:
     def __init__(self, db_path: str = "./tools/spotify/.cache/chroma"):
@@ -16,7 +19,7 @@ class ChromaDBClient:
         try:
             self.client = chromadb.PersistentClient(self.db_path)
         except Exception as e:
-            print(f"Error connecting to Chroma database: {e}")
+            logger.error(f"Error connecting to Chroma database: {e}")
             raise
 
 
@@ -31,7 +34,7 @@ class ChromaDBClient:
                 metadata={"hnsw:space": "cosine"}
             )
         except Exception as e:
-            print(f"Error setting up collection: {e}")
+            logger.error(f"Error setting up collection: {e}")
 
 
     def add_data(self, data_list: list[dict]) -> None:
@@ -76,9 +79,9 @@ class ChromaDBClient:
                     metadatas=batch_metas[i:i+chunk_size]
                 )
             except Exception as e:
-                print(f"Error adding data to Chroma as index {i}: {e}")
+                logger.error(f"Error adding data to Chroma as index {i}: {e}")
 
-        print(f"Sync attempted for {len(batch_ids)} items.")
+        logger.info(f"Sync attempted for {len(batch_ids)} items.")
 
 
     def delete_data(self, ids: list[str], where: dict[str, str]) -> None:
