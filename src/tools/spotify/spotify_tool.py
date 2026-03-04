@@ -8,6 +8,7 @@ import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 import re
 from src.tools.base_tool import BaseTool
+from src.tools.device_manager.android_client import AndroidClient
 from src.tools.spotify.chromadb_client import ChromaDBClient
 from src.tools.spotify.sqlite_client import CacheDB
 from datetime import datetime, timezone
@@ -322,45 +323,11 @@ class SpotifyTool(BaseTool):
 
 
     def _wake_up_phone(self):
-        phone_ip = os.environ.get("PHONE_IP")
-        debug_port = os.environ.get("PHONE_DEBUG_PORT")
-        phone_pin = os.environ.get("PHONE_PIN")
+       with AndroidClient() as adb:
+           adb.wake_and_unlock()
+           adb.launch_app("com.spotify.music")
 
-        if not all([phone_ip, debug_port, phone_pin]):
-            logger.error("Error: Missing at least one environment variable.")
-            return
-
-        device_id = f"{phone_ip}:{debug_port}"
-
-        def adb(command: str, delay: float = 0.5):
-            try:
-                if command.startswith("connect"):
-                    cmd = ["adb"] + command.split()
-                else:
-                    cmd = ["adb", "-s", device_id] + command.split()
-
-                subprocess.run(cmd, check=True)
-
-                if delay > 0:
-                    time.sleep(delay)
-
-            except subprocess.CalledProcessError as e:
-                logger.error(f"ADB command failed: {e}")
-
-        logger.info("Waking up phone...")
-        adb(f"connect {device_id}", delay=1)
-
-        adb("shell input keyevent 223", delay=1)
-        adb("shell input keyevent 224", delay=0.5)
-
-        adb("shell input swipe 500 2000 500 200 150", delay=0.5)
-        adb(f"shell input text {phone_pin}", delay=1)
-
-        adb("shell monkey -p com.spotify.music -c android.intent.category.LAUNCHER 1", delay=2)
-
-        adb("shell input keyevent 126", delay=3.0)
-
-        logger.info("Sequence complete.")
+       logger.info("Spotify app launched")
 
 
     def _get_device_id(self) -> str | None:
